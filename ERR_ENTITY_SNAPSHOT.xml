@@ -1,0 +1,459 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<unload unload_date="2018-07-31 14:36:30">
+<sp_widget action="INSERT_OR_UPDATE">
+<client_script><![CDATA[function($rootScope,$scope,$timeout,spUtil,$location,$filter,$http,$window) {
+	/* widget controller */
+	var c = this;
+
+
+	if (c.data.hasDataForm == 1) {
+		$scope.showFormula = 'Yes';
+	}
+
+	if (c.data.hasDataDis == 1) {
+		$scope.showDis = 'Yes';
+	}
+
+	//-------
+	$scope.showFormula = 'No';
+	$scope.showDis = 'No';
+	$scope.showEntRisk = 'Yes';
+
+
+	var colors = Highcharts.getOptions().colors,
+			cfda_subtitle = 'For All CFDAs'
+
+
+	Highcharts.setOptions({
+		colors: [
+			'#061847', '#388697', 
+			'#E21506', '#28502E', 
+			'#605C4E','#FFE882',  
+			'#080705', '#009B72', 
+			'#009DDC','#55286F'
+		],
+		lang: {
+			thousandsSep: ','
+		}
+	});
+
+	function setChart(chart, options) {
+
+		var max = chart.series.length;
+		for (var i = 0; i < max; i++) {
+			chart.series[0].remove(false);
+		}
+
+		chart.xAxis[0].setCategories(options.categories, false);
+
+		chart.addSeries({
+			type: options.type,
+			name: options.name,
+			data: options.data,
+			color: colors[0]
+		}, false);
+
+
+		//chart.options.spacingRight = 35; //not working
+		//chart.yAxis.title = "Test"; //not working
+		chart.redraw();
+	}
+
+
+	//Listening for "filterResults" event
+	$rootScope.$on('filterValues', function(event,cfda,subProgram,fiscalYr,scheduleType,schedule) {
+		$timeout(function(){
+
+			$scope.selectedAll = false; 
+			$scope.data.parm_cfda = cfda;
+
+
+			console.log($scope.data.parm_cfda);
+			parm_cfda = cfda;
+			parm_subProg = subProgram;
+			parm_fiscalYr = fiscalYr;
+			parm_scheduleType = scheduleType;
+			parm_schedule = schedule;
+			cfda_subtitle = 'For Selected CFDA: '+cfda;
+
+			$scope.data.parm_subProgram = subProgram;
+			$scope.data.parm_fiscalYr = fiscalYr;
+			$scope.data.parm_scheduleType = scheduleType;
+
+			$scope.data.parm_schedule = schedule;
+
+			var newDataArray = [];
+			c.server.update().then(function(response){ // this updates the Server with new $scope variables above.
+				c.data.selectedCFDA = cfda;  //this will be passed back to server for update
+				spUtil.update($scope);
+				newDataArray = c.data.grantee_data;
+
+
+			// on Selection of cfda, REDRAW the chart with data, change text and reset to column //
+			// Note, this needs to be done within the server.update block
+
+			//first reset the title, then redraw as a column (in case it was in pie-status), then update with new data
+
+			cfdaChart.series[0].chart.setTitle(null, { text: 'For CFDA: '+parm_cfda});
+			cfdaChart.series[0].update(
+				{type: 'column'},
+				false
+			);
+			cfdaChart.series[0].setData(newDataArray)
+				});
+
+		}); //end timeout
+
+	}); //end $rootscope
+
+	//Entity Risk Score Snapshot - monthly
+	var lineChartEntityRisk = new Highcharts.Chart({
+		chart: {
+			renderTo: 'lineEntRisk', 
+			type: 'line'				
+		},
+		credits: {
+			enabled: false
+		},
+		title: {
+			text: 'Entity Risk Scores'
+		},
+		subtitle: {
+			text: 'Monthly Admin, Internal and Financial, Trailing 13 Months'
+		},
+		xAxis: {
+			categories: ['Jul 2017', 'Aug 2017', 'Sep 2017', 'Oct 2017', 'Nov 2017', 'Dec 2017', 'Jan 2018', 'Feb 2018','Mar 2018','Apr 2018','May 2018','Jun 2018','Jul 2018']
+		},
+		yAxis: {
+			title: {
+				text: 'Carry Over (%)'
+			}
+		},
+		tooltip: {
+			valueSuffix: '%'
+		},
+
+		series: [c.data.admRisk, c.data.finRisk, c.data.intRisk]
+	});
+
+
+	//------- column chart (with drilldown to pie on click-----------------------//
+
+	var	chart_title = 'Number of Grantees'
+
+
+	var cfdaChart = new Highcharts.Chart({  
+		chart: {
+			renderTo: 'grantee_chart', 
+			type: 'column'
+		},
+		credits: {
+			enabled: false
+		},
+		title: {
+			text: 'Grantees Closed Non-Compliance'
+		},
+		subtitle: {
+			text: '<i>'+cfda_subtitle+'</i>'
+		},
+		xAxis: {
+			categories: c.data.grantee_years,
+			title: {
+				text: null
+			}
+		},
+		yAxis: {
+			min: 0,
+			title: {
+				text: chart_title,
+				align: 'middle'
+			},
+			labels: {
+				overflow: 'justify'
+			}
+		},
+
+		plotOptions: {
+			column: {
+				cursor: 'pointer',
+				point: {
+					events: {
+						click: function() {
+							var xdrilldown = this.xdrilldown;
+
+							this.series.chart.setTitle({
+								text: "Count by State - " + xdrilldown.name
+							});
+
+							var options = {
+								'name': xdrilldown.name,
+								'categories': xdrilldown.grantee_years,
+								'data': xdrilldown.data,
+								'type': 'pie',
+								'text':  'wait, what'
+							};
+
+							setChart(this.series.chart, options);
+						}
+					}
+				}
+			},
+			pie: {
+				cursor: 'pointer',
+				point: {
+					events: {
+						click: function() {
+							this.series.chart.setTitle({
+								text: "Grantees Closed Non-Compliance"
+							});
+							var options = {
+								'name': 'Years',
+								'categories': c.data.grantee_years,
+								'data': c.data.grantee_data,
+								'type': 'column'
+							};
+
+							setChart(this.series.chart, options);
+						}
+					}
+				}}
+		},
+
+
+
+		series: [{
+			name: 'Years',
+			type: 'column',
+			//data: c.data.stateInfo,
+			data: c.data.grantee_data,
+			showInLegend: true 
+		}]
+	})//End Chart
+
+	//-----------------------------fiddle
+
+	//-------- from fiddle 
+
+
+	}]]></client_script>
+<controller_as>c</controller_as>
+<css>.roundedBorder {
+  border: 2px solid grey;
+  border-radius: 25px;
+  margin: 0 auto;
+}
+
+h5 {
+  text-align: center;
+  
+}</css>
+<data_table>sp_instance</data_table>
+<demo_data/>
+<description>Financial Dashboard for POC</description>
+<docs display_value=""/>
+<field_list/>
+<has_preview>true</has_preview>
+<id>err-entity-snapshot</id>
+<internal>false</internal>
+<link/>
+<name>ERR Entity Snapshot</name>
+<option_schema/>
+<public>false</public>
+<roles/>
+<script><![CDATA[(function() {
+	/* populate the 'data' object */
+	/* e.g., data.table = $sp.getValue('table'); */
+	
+
+
+function myParseFloat(graphPoint){  
+var a = parseFloat(graphPoint.toFixed(2))	;
+	return a
+}
+	
+	
+	//Office Variable
+	if ($sp.getParameter("office")) {
+		data.office = $sp.getParameter("office");
+	}
+	// Otherwise, check to see if an option was passed in
+	// If not, default to 'ies'
+	else {
+		data.office = options.office ? options.office : 'OELA';
+	}
+	var off = data.office;
+	
+	data.hasDataForm = '';
+	data.hasDataDis = '';
+
+	
+	//--------------------------------------line chart
+	
+	data.duns = '854990793'
+	data.entity = 'American Samoa Community College'
+
+	var entAdmRisk = 'Admin Risk';
+	data.admRisk = {
+		    name : entAdmRisk,
+		    data: [25,30,35,40,45,90,50,30,15,110,50,70,50]
+	}
+	
+	var entFinRisk = 'Financial Risk';
+	data.finRisk = {
+		    name : entFinRisk,
+		    data: [125,220,135,90,40,25,150,130,115,110,150,170,75]
+	}
+	
+	var entIntRisk = 'Internal Risk';
+	data.intRisk = {
+		    name : entIntRisk,
+		    data: [165,20,100,60,110,200,140,180,100,110,120,150,175]
+	}
+	
+	
+	//------------------------------  pie chart
+	
+
+
+	
+	//---------------------------- Test; x_depar_err_self_s_grant_schedule_award
+	
+	// testing award counts for ALL CFDAs (map to "grantee_data"), and by CFDA to "granteeCFDA_data"
+	// We want the most recent 5 years to map to the Column Chart
+	
+	//-------------------------------------------------------------------------------------------------------------------------
+	
+	var currYr = ''
+	var currYrLess1 = ''
+	var currYrLess2 = ''
+	var currYrLess3 = ''
+	var currYrLess4 = ''
+	var currYrLess5 = ''
+	var granteeCnt = 0;
+	var granteeTot = 0;
+	var statePos = 0;
+	var yr1Val = 0;
+	var yr2Val = 0;
+	var yr3Val = 0;
+	var yr4Val = 0;
+	var yr5Val = 0;
+	
+	
+		
+	
+	var maxYr = new GlideAggregate('x_depar_err_self_s_grant_schedule_award');
+	maxYr.addAggregate('MAX','sub_prgm_fy');
+	maxYr.setGroup(false);  //need to include this when we don't want to group at all//
+	maxYr.query();
+	if (maxYr.next()){
+		currYr = maxYr.getAggregate('MAX','sub_prgm_fy')
+	  currYrLess1 = (currYr - 1).toString();
+		currYrLess2 = (currYr - 2).toString();
+		currYrLess3 = (currYr - 3).toString();
+		currYrLess4 = (currYr - 4).toString();
+	}
+	// Pass the Years to be used for the X-axis
+	
+	data.grantee_years = [currYrLess4,currYrLess3,currYrLess2,currYrLess1,currYr]
+	data.grantee_data = [];	
+
+	var theState = '';
+
+	//Now grab the Grantee Counts, by Year
+//var yearRow = 0; //use this to hold the value 0-4 for the 5 rows of state numbers in the array
+
+	for(var i in data.grantee_years)
+	{
+		var allCFDA = {};
+		allCFDA.xdrilldown = {};
+		allCFDA.xdrilldown.name = data.grantee_years[i].toString();
+		allCFDA.xdrilldown.data =[];
+
+		var yr = data.grantee_years[i].toString();
+
+		var award = new GlideAggregate ('x_depar_err_self_s_grant_schedule_award')
+		granteeCnt = 0;  //reset the cnt
+		granteeTot = 0;
+		award.addQuery('sub_prgm_fy',yr);
+		if (input) {
+			parm_cfda = input.selectedCFDA;
+			console.log('addquery placed here')
+			award.addQuery('cfda_num',parm_cfda);
+		}
+			
+		award.addAggregate('COUNT','appl_recp_state');
+		//award.setGroup(false);  Only set this to false if not doing groupings
+		award.query();
+		while (award.next()) {
+			
+			granteeCnt = parseInt(award.getAggregate('COUNT','appl_recp_state'));
+			granteeTot = granteeTot + granteeCnt
+			theState = award.appl_recp_state.toString();
+			
+			allCFDA.xdrilldown.data.push([theState,granteeCnt]);
+
+
+			if (i==0){yr1Val = parseInt(granteeCnt)}
+			else if (i==1) {yr2Val = parseInt(granteeCnt)}
+			else if (i==2) {yr3Val = parseInt(granteeCnt)}
+			else if (i==3) {yr4Val = parseInt(granteeCnt)}
+			else {yr5Val = parseInt(granteeCnt)}
+		
+		}
+		allCFDA.y = parseInt(granteeTot);   // this is the ALL CFDA Year Value for whichever year we are processing
+		data.grantee_data.push(allCFDA);
+
+	}
+
+console.log('grantee data in server: '+data.grantee_data[0].y)
+	// Below is an example of the structure that needs to be passed to HighCharts to support drilldown from a column to
+	// a pie-chart.
+	
+	// this is an array of 5 objects....each object has a y value and an "xdrilldown" value.
+	// The xdrilldown value is an object which has a name value and a data value.
+	// The data value is an array of arrays (a 2 dimensional array)
+	
+	//data.xgrantee_data = [ {y:yr1Val, xdrilldown:{name:currYrLess4, data:[["Public", 214], ["Tribal", 14],["Private",20],["who knows?",10]]}}, 
+	//										 {y:yr2Val, xdrilldown:{name:currYrLess3, data:[["Public", 215], ["Tribal", 15],["Private",40]]}},
+	//										 {y:yr3Val, xdrilldown:{name:currYrLess2, data:[["Public", 216], ["Tribal", 16],["Private",60]]}},
+	//										 {y:yr4Val, Xdrilldown:{name:currYrLess1, data:[["Public", 217], ["Tribal", 17],["Private",80]]}},
+	//										 {y:yr5Val, xdrilldown:{name:currYr, data:[["Public", 218], ["Tribal", 18],["Private",205]]}}   ]
+//
+
+})();
+
+
+]]></script>
+<servicenow>false</servicenow>
+<sys_class_name>sp_widget</sys_class_name>
+<sys_created_by>paul.bassett</sys_created_by>
+<sys_created_on>2018-07-19 18:51:46</sys_created_on>
+<sys_customer_update>true</sys_customer_update>
+<sys_id>65a0c1dfdb9f1300622d7e560f961941</sys_id>
+<sys_mod_count>447</sys_mod_count>
+<sys_name>ERR Entity Snapshot</sys_name>
+<sys_package display_value="ERR_v2">4f755c88db655300664cfd0d0f96194f</sys_package>
+<sys_policy/>
+<sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+<sys_scope display_value="ERR_v2">4f755c88db655300664cfd0d0f96194f</sys_scope>
+<sys_update_name>sp_widget_65a0c1dfdb9f1300622d7e560f961941</sys_update_name>
+<sys_updated_by>paul.bassett</sys_updated_by>
+<sys_updated_on>2018-07-27 14:52:24</sys_updated_on>
+<template><![CDATA[
+<h1>Entity Snapshot <br> <small>DUNS: {{data.duns}} <br>CFDA: {{ data.parm_cfda }}</small> </h1>
+
+<div  class="container-fluid">
+
+  <div class="row"> 
+    <div ng-show="showEntRisk" class="col-lg-6">
+      <div  id="lineEntRisk" style="min-height: 400px;"></div>  
+    </div>
+
+    <div class="col-lg-4">
+      <div id="grantee_chart" style="height: 400px; margin: 0 auto"></div>
+    </div>
+    
+ 
+  </div>]]></template>
+</sp_widget>
+</unload>
